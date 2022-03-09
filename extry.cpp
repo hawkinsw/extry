@@ -20,17 +20,13 @@ bool Extry::load(const std::string &load_filename, std::string &err_message) {
   Elf_Scn *string_scn{nullptr};
   Elf_Data *string_data{nullptr};
 
-  Elf64_Shdr *program_shdr{nullptr};
-  Elf_Scn *program_scn{nullptr};
-  Elf_Data *program_scn_data{nullptr};
-
-  if ((m_elf_fd = open(load_filename.c_str(), O_RDONLY)) < 0) {
+  if ((m_elf_fd = open(load_filename.c_str(), O_RDWR)) < 0) {
     std::cerr << (err_message = "Could not open the requested ELF file.");
     return false;
   }
 
   elf_version(EV_CURRENT);
-  m_elf_handle = elf_begin(m_elf_fd, ELF_C_READ, nullptr);
+  m_elf_handle = elf_begin(m_elf_fd, ELF_C_RDWR, nullptr);
 
   if (!m_elf_handle) {
     close(m_elf_fd);
@@ -70,7 +66,7 @@ bool Extry::load(const std::string &load_filename, std::string &err_message) {
 
     if (shdr->sh_addr <= m_entry_point &&
         m_entry_point < (shdr->sh_addr + shdr->sh_size)) {
-      m_entry_section_data = elf_getdata(program_scn, nullptr);
+      m_entry_section_data = elf_getdata(scn_iterator, nullptr);
       m_entry_section_name =
           std::string{(char *)string_data->d_buf + shdr->sh_name};
       m_entry_section_hdr = shdr;
@@ -117,8 +113,13 @@ bool Extry::rewrite(std::string &err_message) {
     return false;
   }
   uint64_t data_buffer_offset = m_entry_point - m_entry_section_hdr->sh_addr;
-  m_entry_section_data->d_buf[data_buffer_offset] = 0xc3;
 
+  *(uint8_t*)(((uint8_t*)m_entry_section_data->d_buf) + data_buffer_offset) = 0xc3;
+
+  if (!elf_flagdata(m_entry_section_data, ELF_C_SET, ELF_F_DIRTY)) {
+    err_message = "Attempting to update at an entry point that is invalid.";
+    return false;
+  }
   return true;
 }
 

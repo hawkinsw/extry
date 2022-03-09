@@ -101,13 +101,13 @@ int main(int argc, char *argv[]) {
   }
 
   if (!extry.rewrite(extry_err)) {
-    std::cerr << "An error occurred initializing from file "
+    std::cerr << "An error occurred rewriting file "
               << output_elf_name.Get() << ": " << extry_err << "\n";
     exit(EXIT_FAILURE);
   }
 
   if (!extry.save(extry_err)) {
-    std::cerr << "An error occurred initializing from file "
+    std::cerr << "An error occurred saving file "
               << output_elf_name.Get() << ": " << extry_err << "\n";
     exit(EXIT_FAILURE);
   }
