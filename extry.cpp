@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <extry/extry.hpp>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -69,7 +70,6 @@ bool Extry::load(const std::string &load_filename, std::string &err_message) {
               << std::dec << "\n";
   }
 
-  /* Traverse input filename, printing each section */
   while ((scn_iterator = elf_nextscn(m_elf_handle, scn_iterator))) {
     Elf64_Shdr *shdr{nullptr};
     if ((shdr = elf64_getshdr(scn_iterator)) == NULL) {
@@ -106,6 +106,8 @@ bool Extry::load(const std::string &load_filename, std::string &err_message) {
     std::cout << "Initialization of Extry complete.\n";
   }
 
+  elf_flagelf(m_elf_handle, ELF_C_SET, ELF_F_LAYOUT);
+
   m_loaded = true;
   return true;
 }
@@ -118,35 +120,94 @@ Extry::~Extry() {
 }
 
 bool Extry::rewrite(std::string &err_message) {
+  m_dirty = true;
   /*
    * We are just going to do the simple thing now -- put a ret and bombs away.
    */
 
   // Let's do a sanity check first!
-  int64_t potential_data_buffer_offset = static_cast<int64_t>(m_entry_point) - m_entry_section_hdr->sh_addr;
-  if (potential_data_buffer_offset < 0 || potential_data_buffer_offset > m_entry_section_hdr->sh_size) {
+  int64_t potential_data_buffer_offset =
+      static_cast<int64_t>(m_entry_point) - m_entry_section_hdr->sh_addr;
+  if (potential_data_buffer_offset < 0 ||
+      potential_data_buffer_offset > m_entry_section_hdr->sh_size) {
     err_message = "Attempting to update at an entry point that is invalid.";
+    m_dirty = false;
     return false;
   }
   uint64_t data_buffer_offset = m_entry_point - m_entry_section_hdr->sh_addr;
 
-  *(uint8_t*)(((uint8_t*)m_entry_section_data->d_buf) + data_buffer_offset) = 0xc3;
+  switch (m_extry_type) {
+  case Extry::ExtryType::Stop: {
+    // Write a `ret` (x86) to the first instruction at the entry point.
+    *(uint8_t *)(((uint8_t *)m_entry_section_data->d_buf) +
+                 data_buffer_offset) = 0xc3;
+    break;
+  }
+  case Extry::ExtryType::Random: {
+    // Seed with a real random value, if available
+    std::random_device random_device;
 
-  if (!elf_flagdata(m_entry_section_data, ELF_C_SET, ELF_F_DIRTY)) {
-    err_message = "Attempting to update at an entry point that is invalid.";
+    // Choose a random mean between 1 and 6
+    std::default_random_engine random_engine(random_device());
+    std::uniform_int_distribution<uint64_t> random_uniform_distribution(
+        1, m_entry_section_hdr->sh_size);
+    uint64_t relative_jmp_target = random_uniform_distribution(random_engine);
+
+    if (m_debug) {
+      std::cout << "Rewriting and jumping to 0x" << std::hex
+                << (m_entry_point + relative_jmp_target) << std::dec << ".\n";
+    }
+    err_message = "Random jump extry rewriting is not supported at this time.";
+    m_dirty = false;
+    return false;
+    break;
+  }
+  case Extry::ExtryType::Infinite: {
+    // Use a short jump imm: 0xebfe => jump short -1
+    if (m_debug) {
+      std::cout << "Rewriting and adding an infinite loop at " << std::hex
+                << m_entry_point << std::dec << ".\n";
+    }
+    *(uint8_t *)(((uint8_t *)m_entry_section_data->d_buf) +
+                 data_buffer_offset) = 0xeb;
+    *(uint8_t *)(((uint8_t *)m_entry_section_data->d_buf) +
+                 (data_buffer_offset + 1)) = 0xfe;
+    break;
+  }
+  default:
+    __builtin_unreachable();
+  }
+
+  if (!elf_flagshdr(m_entry_section, ELF_C_SET, ELF_F_DIRTY) ||
+      !elf_flagscn(m_entry_section, ELF_C_SET, ELF_F_DIRTY) ||
+      !elf_flagdata(m_entry_section_data, ELF_C_SET, ELF_F_DIRTY) ||
+      !elf_flagehdr(m_elf_handle, ELF_C_SET, ELF_F_DIRTY) ||
+      !elf_flagelf(m_elf_handle, ELF_C_SET, ELF_F_DIRTY)) {
+    err_message = "Failed to flag the updated ELF file as dirty.";
+    m_dirty = false;
     return false;
   }
   return true;
 }
 
 bool Extry::save(std::string &err_message) {
+  if (!m_dirty) {
+    err_message = "Will not save an ELF file that is not dirty.\n";
+    if (m_debug) {
+      std::cout << "Attempt to save() an ELF that is not dirty.\n";
+    }
+    return false;
+  }
+
   int elf_update_result{-1};
   if ((elf_update_result = elf_update(m_elf_handle, ELF_C_WRITE)) < 0) {
     err_message = std::string{elf_errmsg(-1)};
     return false;
   }
   if (m_debug) {
-    std::cout << "Updated an ELF file with " << elf_update_result << " bytes.\n";
+    std::cout << "Updated an ELF file with " << elf_update_result
+              << " bytes.\n";
   }
+  m_dirty = false;
   return true;
 }

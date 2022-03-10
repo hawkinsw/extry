@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <iostream>
 #include <system_error>
+#include <cassert>
 
 bool file_exists(const std::string &filename) {
   std::filesystem::path filename_path{filename};
@@ -55,9 +56,9 @@ int main(int argc, char *argv[]) {
 
   args::Group extry_type_group(parser,
                                "Extry type:", args::Group::Validators::Xor);
-  args::Flag foo(extry_type_group, "random", "Random", {'r'});
-  args::Flag bar(extry_type_group, "stop", "Stop", {'s'});
-  args::Flag baz(extry_type_group, "infinite", "Infinite", {'i'});
+  args::Flag random_extry(extry_type_group, "random", "Random", {'r'});
+  args::Flag stop_extry(extry_type_group, "stop", "Stop", {'s'});
+  args::Flag infinite_extry(extry_type_group, "infinite", "Infinite", {'i'});
 
   args::Positional<std::string> input_elf_name(
       parser, "input", "The path to the ELF file whose entry point to hijack.",
@@ -81,6 +82,7 @@ int main(int argc, char *argv[]) {
     std::cerr << parser;
     return 1;
   }
+
 
   if (!file_exists(input_elf_name.Get())) {
     std::cerr << "Input file (" << input_elf_name.Get()
@@ -107,7 +109,19 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  Extry extry{Extry::ExtryType::Stop, true};
+  Extry::ExtryType requested_extry_type;
+
+  if (random_extry) {
+    requested_extry_type = Extry::ExtryType::Random;
+  } else if (infinite_extry) {
+    requested_extry_type = Extry::ExtryType::Infinite;
+  } else if (stop_extry) {
+    requested_extry_type = Extry::ExtryType::Stop;
+  } else {
+    __builtin_unreachable();
+  }
+
+  Extry extry{requested_extry_type, true};
 
   std::string extry_err{""};
   if (!extry.load(output_elf_name.Get(), extry_err)) {
