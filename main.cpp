@@ -98,7 +98,9 @@ int main(int argc, char *argv[]) {
 
   /*
    * First, let's copy the input to the output -- then we'll modify the output
-   * file!
+   * file! This unfortunate step is necessary because libELF does not like to
+   * write to a different file than it read. This was *not* my insight -- but
+   * I cannot find the reference for it now.
    */
 
   std::string copy_err_msg;
@@ -121,7 +123,7 @@ int main(int argc, char *argv[]) {
     __builtin_unreachable();
   }
 
-  Extry extry{requested_extry_type, true};
+  Extry extry{requested_extry_type, debug};
 
   std::string extry_err{""};
   if (!extry.load(output_elf_name.Get(), extry_err)) {
